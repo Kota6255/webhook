@@ -74,7 +74,9 @@ def send_slack(
         )
 
     default_text = "Hello from Vercel webhook"
-    text = request.text
+    user_name = request.text
+    # Bubbleから名前だけ来るので、ここで文章を作る
+    text = f"🚀 {user_name} さんが、まかないアプリにログインしました！"
     if text is None or not text.strip():
         text = default_text
     payload = {"text": text}
