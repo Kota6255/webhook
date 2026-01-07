@@ -5,81 +5,101 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
+from pydantic import BaseModel, EmailStr, Field
 
-app = FastAPI(
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-)
+app = FastAPI()
 
-ALLOWED_ORIGINS = [
-    "*",
-]
-
+# Bubbleからのアクセスを許可
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["POST", "OPTIONS"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
 logger = logging.getLogger("vercel_webhook")
 logging.basicConfig(level=logging.INFO)
 
+# --- メール設定 (Vercelの環境変数から読み込む) ---
+mail_config = ConnectionConfig(
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
+    MAIL_FROM=os.getenv("MAIL_USERNAME", ""),
+    MAIL_PORT=587,
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False,
+    USE_CREDENTIALS=True,
+    VALIDATE_CERTS=True
+)
 
+# --- データモデル ---
+# Slack用（変更なし）
+class SlackWebhookRequest(BaseModel):
+    text: Optional[str] = Field(default=None)
+
+# メール用（ここを変更しました！）
+class BroadcastEmailRequest(BaseModel):
+    email: EmailStr # 送り先のメールアドレス
+    count: int      # まかないの個数（xx個）
+
+# --- 関数 ---
 def post_to_slack(webhook_url: str, payload: Dict[str, Any]) -> None:
     try:
         with httpx.Client(timeout=5.0) as client:
-            response = client.post(webhook_url, json=payload)
-        if response.status_code >= 400:
-            logger.error(
-                "Slack webhook failed: status=%s body=%s",
-                response.status_code,
-                response.text,
-            )
-    except Exception:
-        logger.exception("Slack webhook request failed")
+            client.post(webhook_url, json=payload)
+    except Exception as e:
+        logger.exception(f"Slack error: {e}")
 
-
-class SlackWebhookRequest(BaseModel):
-    text: Optional[str] = Field(default=None, description="Slack message text")
-
-
+# --- APIエンドポイント ---
 @app.get("/")
-def root() -> Dict[str, str]:
-    return {
-        "status": "ok",
-        "docs": "/docs",
-        "redoc": "/redoc",
-    }
+def root():
+    return {"message": "Makanai API is running!"}
 
-
-@app.get("/healthz")
-def healthz() -> Dict[str, str]:
-    return {"status": "ok"}
-
-
+# Slack通知（変更なし）
 @app.post("/slack", status_code=status.HTTP_202_ACCEPTED)
 def send_slack(
     background_tasks: BackgroundTasks,
     request: SlackWebhookRequest = Body(default_factory=SlackWebhookRequest),
-) -> Dict[str, str]:
+):
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-    if not webhook_url:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="SLACK_WEBHOOK_URL is not set",
-        )
-
-    default_text = "Hello from Vercel webhook"
-    user_name = request.text
-    # Bubbleから名前だけ来るので、ここで文章を作る
-    text = f"🚀 {user_name} さんが、まかないアプリにログインしました！"
-    if text is None or not text.strip():
-        text = default_text
-    payload = {"text": text}
-
-    background_tasks.add_task(post_to_slack, webhook_url, payload)
+    if webhook_url:
+        text = request.text or "Webhook received"
+        background_tasks.add_task(post_to_slack, webhook_url, {"text": text})
     return {"status": "queued"}
+
+# まかない販売告知メール (New!)
+@app.post("/send-email", status_code=status.HTTP_202_ACCEPTED)
+async def send_broadcast_email(
+    background_tasks: BackgroundTasks,
+    request: BroadcastEmailRequest
+):
+
+    #メール配信用文章
+    html_content = f"""
+    <div style="font-family: sans-serif; padding: 10px;">
+        <p>本日はまかないが <b>{request.count}個</b> あります。</p>
+        <p>ご利用お待ちしております！</p>
+        <p>
+            <a href="https://lstep.app/hIAgXif">https://lstep.app/hIAgXif</a>
+        </p>
+        <br>
+        <br>
+        <p style="font-size: 0.9em; color: #555;">
+            ※購入前に、Webアプリのホーム画面右下「使い方」よりアレルギー項目の確認をお願いいたします。
+        </p>
+    </div>
+    """
+    
+    message = MessageSchema(
+        subject=f"【まかないアプリ】本日は{request.count}食の販売があります！",
+        recipients=[request.email],
+        body=html_content,
+        subtype=MessageType.html
+    )
+
+    fm = FastMail(mail_config)
+    background_tasks.add_task(fm.send_message, message)
+    return {"status": "broadcast_queued"}
