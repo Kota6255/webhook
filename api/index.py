@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 # --- メール設定（直接書き込み版） ---
     mail_config = ConnectionConfig(
         MAIL_USERNAME="makanaihaishin@gmail.com",
-        MAIL_PASSWORD="kujp ihzk zrxp sgti",    # 
+        MAIL_PASSWORD="kujp ihzk zrxp sgti",   
         MAIL_FROM="makanaihaishin@gmail.com",
         MAIL_PORT=587,
         MAIL_SERVER="smtp.gmail.com",
