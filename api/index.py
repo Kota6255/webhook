@@ -22,18 +22,18 @@ app.add_middleware(
 logger = logging.getLogger("vercel_webhook")
 logging.basicConfig(level=logging.INFO)
 
-# --- メール設定 (Vercelの環境変数から読み込む) ---
-mail_config = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
-    MAIL_FROM="makanaihaishin@gmail.com",      
-    MAIL_PORT=587,
-    MAIL_SERVER="smtp.gmail.com",
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True
-)
+# --- メール設定（直接書き込み版） ---
+    mail_config = ConnectionConfig(
+        MAIL_USERNAME="makanaihaishin@gmail.com",
+        MAIL_PASSWORD="kujp ihzk zrxp sgti",    # ← 今いただいたパスワードを入れました
+        MAIL_FROM="makanaihaishin@gmail.com",
+        MAIL_PORT=587,
+        MAIL_SERVER="smtp.gmail.com",
+        MAIL_STARTTLS=True,
+        MAIL_SSL_TLS=False,
+        USE_CREDENTIALS=True,
+        VALIDATE_CERTS=True
+    )
 
 # --- データモデル ---
 # Slack用（変更なし）
