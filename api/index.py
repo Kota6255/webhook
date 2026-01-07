@@ -22,10 +22,10 @@ app.add_middleware(
 logger = logging.getLogger("vercel_webhook")
 logging.basicConfig(level=logging.INFO)
 
-# --- メール設定（直接書き込み版） ---
+# --- メール設定（ここが重要：行の左端に寄せています） ---
 mail_config = ConnectionConfig(
     MAIL_USERNAME="makanaihaishin@gmail.com",
-    MAIL_PASSWORD="kujp ihzk zrxp sgti",
+    MAIL_PASSWORD="kujpihzkzrxpsgti",
     MAIL_FROM="makanaihaishin@gmail.com",
     MAIL_PORT=587,
     MAIL_SERVER="smtp.gmail.com",
@@ -43,7 +43,7 @@ class BroadcastEmailRequest(BaseModel):
     email: EmailStr
     count: int
 
-# --- Slack送信用の関数 ---
+# --- 関数 ---
 def post_to_slack(webhook_url: str, payload: Dict[str, Any]) -> None:
     try:
         with httpx.Client(timeout=5.0) as client:
@@ -56,7 +56,7 @@ def post_to_slack(webhook_url: str, payload: Dict[str, Any]) -> None:
 def root():
     return {"message": "Makanai API is running!"}
 
-# Slack通知エンドポイント
+# Slack通知
 @app.post("/slack", status_code=status.HTTP_202_ACCEPTED)
 def send_slack(
     background_tasks: BackgroundTasks,
@@ -68,23 +68,16 @@ def send_slack(
         background_tasks.add_task(post_to_slack, webhook_url, payload)
     return {"status": "success"}
 
-# メール送信エンドポイント（確実に送るために await を使用）
+# まかない販売告知メール
 @app.post("/send-email")
 async def send_broadcast_email(request: BroadcastEmailRequest):
-    
-    # メール本文
     html_content = f"""
     <div style="font-family: sans-serif; padding: 10px;">
         <p>本日はまかないが <b>{request.count}個</b> あります。</p>
         <p>ご利用お待ちしております！</p>
-        <p>
-            <a href="https://lstep.app/hIAgXif">https://lstep.app/hIAgXif</a>
-        </p>
-        <br>
-        <br>
-        <p style="font-size: 0.9em; color: #555;">
-            ※購入前に、Webアプリのホーム画面右下「使い方」よりアレルギー項目の確認をお願いいたします。
-        </p>
+        <p><a href="https://lstep.app/hIAgXif">https://lstep.app/hIAgXif</a></p>
+        <br><br>
+        <p style="font-size: 0.9em; color: #555;">※購入前に、Webアプリのホーム画面右下「使い方」よりアレルギー項目の確認をお願いいたします。</p>
     </div>
     """
     
@@ -96,7 +89,5 @@ async def send_broadcast_email(request: BroadcastEmailRequest):
     )
 
     fm = FastMail(mail_config)
-    # Vercelでの送信失敗を防ぐため、バックグラウンドではなく完了を待ちます
     await fm.send_message(message)
-    
     return {"status": "success"}
