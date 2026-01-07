@@ -67,9 +67,8 @@ def send_slack(
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
     if webhook_url:
         text = request.text or "Webhook received"
-        background_tasks.add_task(post_to_slack, webhook_url, {"text": text})
-    return {"status": "queued"}
-
+        await fm.send_message(message)
+    return {"status": "success"}
 # まかない販売告知メール (New!)
 @app.post("/send-email", status_code=status.HTTP_202_ACCEPTED)
 async def send_broadcast_email(
