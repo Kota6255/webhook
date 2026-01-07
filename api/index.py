@@ -23,29 +23,27 @@ logger = logging.getLogger("vercel_webhook")
 logging.basicConfig(level=logging.INFO)
 
 # --- メール設定（直接書き込み版） ---
-    mail_config = ConnectionConfig(
-        MAIL_USERNAME="makanaihaishin@gmail.com",
-        MAIL_PASSWORD="kujp ihzk zrxp sgti",   
-        MAIL_FROM="makanaihaishin@gmail.com",
-        MAIL_PORT=587,
-        MAIL_SERVER="smtp.gmail.com",
-        MAIL_STARTTLS=True,
-        MAIL_SSL_TLS=False,
-        USE_CREDENTIALS=True,
-        VALIDATE_CERTS=True
-    )
+mail_config = ConnectionConfig(
+    MAIL_USERNAME="makanaihaishin@gmail.com",
+    MAIL_PASSWORD="kujp ihzk zrxp sgti",
+    MAIL_FROM="makanaihaishin@gmail.com",
+    MAIL_PORT=587,
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False,
+    USE_CREDENTIALS=True,
+    VALIDATE_CERTS=True
+)
 
 # --- データモデル ---
-# Slack用（変更なし）
 class SlackWebhookRequest(BaseModel):
     text: Optional[str] = Field(default=None)
 
-# メール用（ここを変更しました！）
 class BroadcastEmailRequest(BaseModel):
-    email: EmailStr # 送り先のメールアドレス
-    count: int      # まかないの個数（xx個）
+    email: EmailStr
+    count: int
 
-# --- 関数 ---
+# --- Slack送信用の関数 ---
 def post_to_slack(webhook_url: str, payload: Dict[str, Any]) -> None:
     try:
         with httpx.Client(timeout=5.0) as client:
@@ -58,7 +56,7 @@ def post_to_slack(webhook_url: str, payload: Dict[str, Any]) -> None:
 def root():
     return {"message": "Makanai API is running!"}
 
-# Slack通知（変更なし）
+# Slack通知エンドポイント
 @app.post("/slack", status_code=status.HTTP_202_ACCEPTED)
 def send_slack(
     background_tasks: BackgroundTasks,
@@ -66,17 +64,15 @@ def send_slack(
 ):
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
     if webhook_url:
-        text = request.text or "Webhook received"
-        await fm.send_message(message)
+        payload = {"text": request.text or "Webhook received"}
+        background_tasks.add_task(post_to_slack, webhook_url, payload)
     return {"status": "success"}
-# まかない販売告知メール (New!)
-@app.post("/send-email", status_code=status.HTTP_202_ACCEPTED)
-async def send_broadcast_email(
-    background_tasks: BackgroundTasks,
-    request: BroadcastEmailRequest
-):
 
-    #メール配信用文章
+# メール送信エンドポイント（確実に送るために await を使用）
+@app.post("/send-email")
+async def send_broadcast_email(request: BroadcastEmailRequest):
+    
+    # メール本文
     html_content = f"""
     <div style="font-family: sans-serif; padding: 10px;">
         <p>本日はまかないが <b>{request.count}個</b> あります。</p>
@@ -100,5 +96,7 @@ async def send_broadcast_email(
     )
 
     fm = FastMail(mail_config)
-    background_tasks.add_task(fm.send_message, message)
-    return {"status": "broadcast_queued"}
+    # Vercelでの送信失敗を防ぐため、バックグラウンドではなく完了を待ちます
+    await fm.send_message(message)
+    
+    return {"status": "success"}
