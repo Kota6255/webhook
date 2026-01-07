@@ -1,4 +1,5 @@
 fastapi
 httpx
+pydantic
 uvicorn
-fastapi_mail
+fastapi-mail
