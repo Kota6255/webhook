@@ -1,13 +1,12 @@
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional # Listを追加
 
 import httpx
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from pydantic import BaseModel, EmailStr, Field
-from typing import List
 
 app = FastAPI()
 
@@ -23,7 +22,7 @@ app.add_middleware(
 logger = logging.getLogger("vercel_webhook")
 logging.basicConfig(level=logging.INFO)
 
-# --- メール設定（ここが重要：行の左端に寄せています） ---
+# --- メール設定 ---
 mail_config = ConnectionConfig(
     MAIL_USERNAME="makanaihaishin@gmail.com",
     MAIL_PASSWORD="kujpihzkzrxpsgti",
@@ -40,8 +39,9 @@ mail_config = ConnectionConfig(
 class SlackWebhookRequest(BaseModel):
     text: Optional[str] = Field(default=None)
 
+# 変更点：emailを単体からリスト（配列）に変更しました
 class BroadcastEmailRequest(BaseModel):
-    emails: List[EmailStr] # <-- List[]で囲むことで配列を受け取れます
+    emails: List[EmailStr] 
     count: int
 
 # --- 関数 ---
@@ -52,12 +52,40 @@ def post_to_slack(webhook_url: str, payload: Dict[str, Any]) -> None:
     except Exception as e:
         logger.exception(f"Slack error: {e}")
 
+# 追加：メール送信のバックグラウンドタスク関数
+async def send_bulk_email_task(emails: List[str], count: int):
+    html_content = f"""
+    <div style="font-family: sans-serif; padding: 10px;">
+        <p>本日はまかないが <b>{count}個</b> あります。</p>
+        <p>ご利用お待ちしております！</p>
+        <p><a href="https://lstep.app/hIAgXif">https://lstep.app/hIAgXif</a></p>
+        <br><br>
+        <p style="font-size: 0.9em; color: #555;">※購入前に、Webアプリのホーム画面右下「使い方」よりアレルギー項目の確認をお願いいたします。</p>
+    </div>
+    """
+    
+    # FastMailを使ってBCCで一括送信、または個別にループ送信
+    # ここでは一般的な一斉送信（BCC）の例ですが、Gmailの制限に注意してください
+    message = MessageSchema(
+        subject=f"【まかないアプリ】本日は{count}食の販売があります！",
+        recipients=[], # Toは空にするか、自分宛てにする
+        bcc=emails,    # リストをBCCに入れることで一斉送信
+        body=html_content,
+        subtype=MessageType.html
+    )
+
+    fm = FastMail(mail_config)
+    try:
+        await fm.send_message(message)
+        logger.info(f"Email sent to {len(emails)} recipients.")
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+
 # --- APIエンドポイント ---
 @app.get("/")
 def root():
     return {"message": "Makanai API is running!"}
 
-# Slack通知
 @app.post("/slack", status_code=status.HTTP_202_ACCEPTED)
 def send_slack(
     background_tasks: BackgroundTasks,
@@ -69,31 +97,13 @@ def send_slack(
         background_tasks.add_task(post_to_slack, webhook_url, payload)
     return {"status": "success"}
 
-# --- エンドポイントの修正 ---
+# まかない販売告知メール（一斉配信用に修正）
 @app.post("/send-email")
 async def send_broadcast_email(
     request: BroadcastEmailRequest, 
     background_tasks: BackgroundTasks # バックグラウンドタスクを利用
 ):
-    # メール作成ロジックを関数化（またはここで直接定義）
-    html_content = f"""
-    <div style="font-family: sans-serif; padding: 10px;">
-        <p>本日はまかないが <b>{request.count}個</b> あります。</p>
-        <p>お早めにご利用ください！</p>
-    </div>
-    """
+    # API自体はすぐにレスポンスを返し、裏でメールを送る
+    background_tasks.add_task(send_bulk_email_task, request.emails, request.count)
     
-    message = MessageSchema(
-        subject=f"【まかないアプリ】本日は{request.count}食の販売があります！",
-        recipients=["makanaihaishin@gmail.com"], # TOは自分（管理者）宛てにする
-        bcc=request.emails,    # 【重要】リストはBCCに入れる！
-        body=html_content,
-        subtype=MessageType.html
-    )
-
-    fm = FastMail(mail_config)
-    
-    # APIは「受付完了」と即答し、裏でメールを送る
-    background_tasks.add_task(fm.send_message, message)
-    
-    return {"status": "success", "message": f"Queued {len(request.emails)} emails."}
+    return {"status": "success", "message": f"Sending emails to {len(request.emails)} users in background."}
